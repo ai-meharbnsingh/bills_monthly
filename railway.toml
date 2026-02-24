@@ -1,0 +1,3 @@
+[deploy]
+# Run at 6:00 AM UTC on the 2nd of every month
+cronSchedule = "0 6 2 * *"
