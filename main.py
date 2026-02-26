@@ -10,17 +10,11 @@ All credentials are read from environment variables (set in Railway dashboard).
 
 import os
 import sys
-import smtplib
-import random
-import string
 import subprocess
 import tempfile
 from datetime import datetime
-from dateutil.relativedelta import relativedelta
-from openpyxl import load_workbook
-from email.mime.multipart import MIMEMultipart
-from email.mime.text import MIMEText
-from email.mime.application import MIMEApplication
+
+from bill_utils import update_excel_file, send_email_smtp, pdf_filename
 
 # Templates live next to this script
 SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -35,53 +29,6 @@ def get_env(name):
         print(f"ERROR: Missing required environment variable: {name}")
         sys.exit(1)
     return value
-
-
-def generate_random_bill_no():
-    letters = ''.join(random.choices(string.ascii_uppercase, k=2))
-    digits = ''.join(random.choices(string.digits, k=14))
-    return f"{letters}{digits}"
-
-
-def update_excel_file(template_path, temp_dir, is_mobile_bill):
-    """Update an Excel template with current billing dates and a random bill number."""
-    print(f"  Loading template: {os.path.basename(template_path)}")
-    wb = load_workbook(filename=template_path)
-    ws = wb.active
-
-    today = datetime.now()
-    statement_date_dt = today.replace(day=23) - relativedelta(months=1)
-    period_start_dt = today.replace(day=23) - relativedelta(months=2)
-    period_end_dt = today.replace(day=22) - relativedelta(months=1)
-    due_date_dt = today.replace(day=12)
-
-    statement_date_str = f"Statement Date:{statement_date_dt.strftime('%d %b %Y')}"
-    period_start_str = period_start_dt.strftime('%d %b %Y')
-    period_end_str = period_end_dt.strftime('%d %b %Y')
-    statement_period_str = f"Statement Period:{period_start_str}-{period_end_str}"
-    due_date_q7_str = due_date_dt.strftime('%d-%b-%Y')
-    due_date_s12_str = f"Amount after due date ({due_date_dt.strftime('%d %B')})"
-    new_bill_no = f"Bill No. {generate_random_bill_no()}"
-
-    if is_mobile_bill:
-        ws['J5'] = statement_date_str
-        ws['J6'] = statement_period_str
-        ws['Q7'] = due_date_q7_str
-        ws['S12'] = due_date_s12_str
-        ws['H82'] = new_bill_no
-        temp_filename = "temp_mobile_bill.xlsx"
-    else:
-        ws['J7'] = statement_date_str
-        ws['J8'] = statement_period_str
-        ws['Q7'] = due_date_q7_str
-        ws['S12'] = due_date_s12_str
-        ws['H82'] = new_bill_no
-        temp_filename = "temp_landline_bill.xlsx"
-
-    temp_excel_path = os.path.join(temp_dir, temp_filename)
-    wb.save(temp_excel_path)
-    print(f"  Generated: {temp_filename}")
-    return temp_excel_path
 
 
 def convert_excel_to_pdf(excel_path, pdf_path):
@@ -117,32 +64,6 @@ def convert_excel_to_pdf(excel_path, pdf_path):
     print(f"  PDF created: {os.path.basename(pdf_path)}")
 
 
-def send_email(sender_email, sender_password, recipient_email, smtp_server, smtp_port, attachments):
-    """Send an email with the generated PDF bills attached."""
-    print("\n3. Sending email...")
-
-    msg = MIMEMultipart()
-    msg['From'] = sender_email
-    msg['To'] = recipient_email
-    msg['Subject'] = f"Your Bills for {datetime.now().strftime('%B %Y')}"
-    msg.attach(MIMEText("Please find your monthly bills attached.\n\nThank you.", 'plain'))
-
-    for file_path in attachments:
-        with open(file_path, 'rb') as f:
-            part = MIMEApplication(f.read(), Name=os.path.basename(file_path))
-            part['Content-Disposition'] = f'attachment; filename="{os.path.basename(file_path)}"'
-            msg.attach(part)
-        print(f"  Attached: {os.path.basename(file_path)}")
-
-    print(f"  Connecting to {smtp_server}:{smtp_port}...")
-    server = smtplib.SMTP(smtp_server, smtp_port)
-    server.starttls()
-    server.login(sender_email, sender_password)
-    server.send_message(msg)
-    server.quit()
-    print(f"  Email sent successfully to {recipient_email}")
-
-
 def main():
     print("=" * 60)
     print("MONTHLY BILL GENERATOR (Railway Cron)")
@@ -154,7 +75,11 @@ def main():
     sender_password = get_env('SENDER_PASSWORD')
     recipient_email = get_env('RECIPIENT_EMAIL')
     smtp_server = get_env('SMTP_SERVER')
-    smtp_port = int(get_env('SMTP_PORT'))
+    smtp_port_raw = get_env('SMTP_PORT')
+    if not smtp_port_raw.isdigit() or not 1 <= int(smtp_port_raw) <= 65535:
+        print(f"ERROR: Invalid SMTP_PORT value: '{smtp_port_raw}'. Must be a number between 1 and 65535.")
+        sys.exit(1)
+    smtp_port = int(smtp_port_raw)
 
     temp_dir = tempfile.mkdtemp(prefix='bills_')
     files_to_cleanup = []
@@ -162,25 +87,42 @@ def main():
     try:
         # --- Mobile Bill ---
         print("\n1. Generating Mobile Bill...")
-        mobile_xlsx = update_excel_file(MOBILE_TEMPLATE, temp_dir, is_mobile_bill=True)
+        mobile_xlsx, error = update_excel_file(MOBILE_TEMPLATE, temp_dir, is_mobile_bill=True)
+        if error:
+            raise RuntimeError(error)
         files_to_cleanup.append(mobile_xlsx)
+        print(f"  Generated: {os.path.basename(mobile_xlsx)}")
 
-        mobile_pdf = os.path.join(temp_dir, f"Mobile Bill {datetime.now().strftime('%B-%y')}.pdf")
+        mobile_pdf = os.path.join(temp_dir, pdf_filename("Mobile"))
         convert_excel_to_pdf(mobile_xlsx, mobile_pdf)
         files_to_cleanup.append(mobile_pdf)
 
         # --- Landline Bill ---
         print("\n2. Generating Landline Bill...")
-        landline_xlsx = update_excel_file(LANDLINE_TEMPLATE, temp_dir, is_mobile_bill=False)
+        landline_xlsx, error = update_excel_file(LANDLINE_TEMPLATE, temp_dir, is_mobile_bill=False)
+        if error:
+            raise RuntimeError(error)
         files_to_cleanup.append(landline_xlsx)
+        print(f"  Generated: {os.path.basename(landline_xlsx)}")
 
-        landline_pdf = os.path.join(temp_dir, f"Landline Bill {datetime.now().strftime('%B-%y')}.pdf")
+        landline_pdf = os.path.join(temp_dir, pdf_filename("Landline"))
         convert_excel_to_pdf(landline_xlsx, landline_pdf)
         files_to_cleanup.append(landline_pdf)
 
         # --- Send Email ---
-        send_email(sender_email, sender_password, recipient_email,
-                   smtp_server, smtp_port, [mobile_pdf, landline_pdf])
+        print("\n3. Sending email...")
+        attachments = [mobile_pdf, landline_pdf]
+        for a in attachments:
+            print(f"  Attached: {os.path.basename(a)}")
+        print(f"  Connecting to {smtp_server}:{smtp_port}...")
+
+        success, error, _ = send_email_smtp(
+            sender_email, sender_password, recipient_email,
+            smtp_server, smtp_port, attachments
+        )
+        if not success:
+            raise RuntimeError(error)
+        print(f"  Email sent successfully to {recipient_email}")
 
         print("\n" + "=" * 60)
         print("SUCCESS! Bills generated and emailed.")

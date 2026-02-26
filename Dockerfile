@@ -11,7 +11,8 @@ WORKDIR /app
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Copy templates and script
+# Copy shared module, templates, and entry point
+COPY bill_utils.py .
 COPY Mobile_Bill_Template.xlsx .
 COPY Landline_Bill_Template.xlsx .
 COPY main.py .

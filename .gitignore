@@ -8,3 +8,4 @@ nul
 *.log
 .claude/
 .idea/
+config.ini
