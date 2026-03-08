@@ -13,22 +13,21 @@ Automated monthly bill generator that creates mobile and landline bills from Exc
 
 | Script | Platform | PDF Conversion | Config |
 |---|---|---|---|
-| `main.py` | Railway / Docker (Linux) | LibreOffice headless | Environment variables |
+| `main.py` | Linux / Mac / Docker | LibreOffice headless | Environment variables |
 | `generate_bills.py` | Windows (GUI) | VBScript + Excel COM | `config.ini` |
 | `run_bills_console.py` | Windows (console) | `win32com` + Excel COM | `config.ini` |
 
 ## Setup
 
-### Railway (Production)
+### Linux / Mac / Docker (Production)
 
-1. Push to a Railway-connected repo
-2. Set environment variables in the Railway dashboard:
+1. Set environment variables:
    - `SENDER_EMAIL` — Gmail address
    - `SENDER_PASSWORD` — Gmail app password
    - `RECIPIENT_EMAIL` — Where to send the bills
    - `SMTP_SERVER` — `smtp.gmail.com`
    - `SMTP_PORT` — `587` (STARTTLS) or `465` (SSL)
-3. Railway runs `main.py` via cron on the 2nd of each month (see `railway.toml`)
+2. Run `python main.py`
 
 ### Windows (Local)
 
@@ -49,8 +48,6 @@ Automated monthly bill generator that creates mobile and landline bills from Exc
 ├── Mobile_Bill_Template.xlsx  # Excel template
 ├── Landline_Bill_Template.xlsx
 ├── config.ini                 # Local credentials (gitignored)
-├── Dockerfile                 # Docker image for Railway
-├── railway.toml               # Railway cron config
 ├── requirements.txt           # Python dependencies
 └── Run_Bill_Generator.bat     # Windows shortcut
 ```

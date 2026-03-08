@@ -1,6 +1,0 @@
-[build]
-dockerfilePath = "Dockerfile"
-
-[deploy]
-# Run at 6:00 AM IST (00:30 UTC) on the 2nd of every month
-cronSchedule = "30 0 2 * *"
