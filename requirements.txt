@@ -1,10 +1,11 @@
-# Core dependencies (all platforms)
+# Core dependencies
+openpyxl>=3.1.0
 python-dateutil>=2.8.0
-reportlab>=4.0.0
-pypdf>=4.0.0
 
-# For local Excel editing (optional):
-# openpyxl>=3.1.0
+# For Windows (already installed on GitHub Actions Windows runner):
+# pywin32
 
-# Windows-only (for generate_bills.py and run_bills_console.py):
-# pip install pywin32
+# For PDF comparison/testing (optional):
+# reportlab
+# pypdf
+# pdf2image

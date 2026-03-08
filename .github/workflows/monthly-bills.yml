@@ -8,7 +8,7 @@ on:
 
 jobs:
   generate:
-    runs-on: ubuntu-latest
+    runs-on: windows-latest  # Windows has Excel for better PDF conversion
 
     steps:
       - name: Checkout repository
@@ -22,7 +22,7 @@ jobs:
       - name: Install dependencies
         run: |
           python -m pip install --upgrade pip
-          pip install -r requirements.txt
+          pip install openpyxl python-dateutil pywin32
 
       - name: Run monthly bill generator
         env:
@@ -31,4 +31,4 @@ jobs:
           RECIPIENT_EMAIL: ${{ secrets.RECIPIENT_EMAIL }}
           SMTP_SERVER: ${{ secrets.SMTP_SERVER }}
           SMTP_PORT: ${{ secrets.SMTP_PORT }}
-        run: python main.py
+        run: python run_bills_console.py
