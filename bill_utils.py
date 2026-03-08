@@ -17,11 +17,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
-# Try xlwings first (preserves images with Excel app), fallback to openpyxl
+# Optional: xlwings for Excel editing with Microsoft Excel (Windows/Mac)
 USE_XLWINGS = False
 try:
     import xlwings as xw
-    # Test if Excel is actually available by trying to create an app
     try:
         _app = xw.App(visible=False)
         _app.quit()
@@ -31,8 +30,11 @@ try:
 except ImportError:
     pass
 
-if not USE_XLWINGS:
+# Optional: openpyxl for Excel editing without Excel (Linux)
+try:
     from openpyxl import load_workbook
+except ImportError:
+    load_workbook = None
 
 
 def generate_random_bill_no():
@@ -115,7 +117,7 @@ def update_excel_file(template_path, temp_dir, is_mobile_bill):
             except:
                 pass
             return None, f"xlwings error: {e}"
-    else:
+    elif load_workbook is not None:
         # Fallback to openpyxl (images will be lost - for GitHub Actions only)
         try:
             wb = load_workbook(filename=template_path)
