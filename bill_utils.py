@@ -11,10 +11,17 @@ import string
 import smtplib
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
-from openpyxl import load_workbook
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
+
+# Try aspose-cells first (preserves images), fallback to openpyxl
+try:
+    import aspose.cells as ac
+    USE_ASPOSE = True
+except ImportError:
+    from openpyxl import load_workbook
+    USE_ASPOSE = False
 
 
 def generate_random_bill_no():
@@ -60,31 +67,63 @@ def update_excel_file(template_path, temp_dir, is_mobile_bill):
     Returns:
         (temp_excel_path, error_message) — error_message is None on success.
     """
-    try:
-        wb = load_workbook(filename=template_path)
-        ws = wb.active
-    except FileNotFoundError:
+    if not os.path.exists(template_path):
         return None, f"Template file not found: {os.path.basename(template_path)}"
 
     dates = compute_billing_dates()
 
-    if is_mobile_bill:
-        ws['J5'] = dates['statement_date_str']
-        ws['J6'] = dates['statement_period_str']
-        temp_filename = "temp_mobile_bill.xlsx"
+    if USE_ASPOSE:
+        # Use aspose-cells (preserves images and formatting)
+        try:
+            wb = ac.Workbook(template_path)
+            ws = wb.worksheets[0]
+
+            if is_mobile_bill:
+                ws.cells.get("J5").put_value(dates['statement_date_str'])
+                ws.cells.get("J6").put_value(dates['statement_period_str'])
+                temp_filename = "temp_mobile_bill.xlsx"
+            else:
+                ws.cells.get("J7").put_value(dates['statement_date_str'])
+                ws.cells.get("J8").put_value(dates['statement_period_str'])
+                temp_filename = "temp_landline_bill.xlsx"
+
+            # Common cells for both bill types
+            ws.cells.get("Q7").put_value(dates['due_date_q7_str'])
+            ws.cells.get("S12").put_value(dates['due_date_s12_str'])
+            ws.cells.get("H82").put_value(dates['bill_no_str'])
+
+            temp_excel_path = os.path.join(temp_dir, temp_filename)
+            wb.save(temp_excel_path)
+            return temp_excel_path, None
+        except Exception as e:
+            return None, f"Aspose error: {e}"
     else:
-        ws['J7'] = dates['statement_date_str']
-        ws['J8'] = dates['statement_period_str']
-        temp_filename = "temp_landline_bill.xlsx"
+        # Fallback to openpyxl (images will be lost)
+        try:
+            wb = load_workbook(filename=template_path)
+            ws = wb.active
+        except FileNotFoundError:
+            return None, f"Template file not found: {os.path.basename(template_path)}"
 
-    # Common cells for both bill types
-    ws['Q7'] = dates['due_date_q7_str']
-    ws['S12'] = dates['due_date_s12_str']
-    ws['H82'] = dates['bill_no_str']
+        dates = compute_billing_dates()
 
-    temp_excel_path = os.path.join(temp_dir, temp_filename)
-    wb.save(temp_excel_path)
-    return temp_excel_path, None
+        if is_mobile_bill:
+            ws['J5'] = dates['statement_date_str']
+            ws['J6'] = dates['statement_period_str']
+            temp_filename = "temp_mobile_bill.xlsx"
+        else:
+            ws['J7'] = dates['statement_date_str']
+            ws['J8'] = dates['statement_period_str']
+            temp_filename = "temp_landline_bill.xlsx"
+
+        # Common cells for both bill types
+        ws['Q7'] = dates['due_date_q7_str']
+        ws['S12'] = dates['due_date_s12_str']
+        ws['H82'] = dates['bill_no_str']
+
+        temp_excel_path = os.path.join(temp_dir, temp_filename)
+        wb.save(temp_excel_path)
+        return temp_excel_path, None
 
 
 def send_email_smtp(sender_email, sender_password, recipient_email,

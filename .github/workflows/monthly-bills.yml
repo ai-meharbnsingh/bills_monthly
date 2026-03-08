@@ -19,6 +19,12 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Install Java (required for aspose-cells)
+        uses: actions/setup-java@v4
+        with:
+          java-version: '17'
+          distribution: 'temurin'
+
       - name: Install LibreOffice
         run: |
           sudo apt-get update

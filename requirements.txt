@@ -1,6 +1,7 @@
 # Core dependencies (all platforms)
 openpyxl>=3.1.0
 python-dateutil>=2.8.0
+aspose-cells>=24.10.0
 
 # Windows-only (for generate_bills.py and run_bills_console.py):
 # pip install pywin32
