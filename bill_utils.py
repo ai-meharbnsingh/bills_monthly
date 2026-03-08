@@ -1,7 +1,7 @@
 """
 Shared utilities for bill generation.
 
-Contains common functions used by main.py (Railway), generate_bills.py (Windows GUI),
+Contains common functions used by main.py (Linux/Docker), generate_bills.py (Windows GUI),
 and run_bills_console.py (Windows console).
 """
 
@@ -9,19 +9,30 @@ import os
 import random
 import string
 import smtplib
+import tempfile
+import shutil
 from datetime import datetime
 from dateutil.relativedelta import relativedelta
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from email.mime.application import MIMEApplication
 
-# Try aspose-cells first (preserves images), fallback to openpyxl
+# Try xlwings first (preserves images with Excel app), fallback to openpyxl
+USE_XLWINGS = False
 try:
-    import aspose.cells as ac
-    USE_ASPOSE = True
+    import xlwings as xw
+    # Test if Excel is actually available by trying to create an app
+    try:
+        _app = xw.App(visible=False)
+        _app.quit()
+        USE_XLWINGS = True
+    except:
+        pass
 except ImportError:
+    pass
+
+if not USE_XLWINGS:
     from openpyxl import load_workbook
-    USE_ASPOSE = False
 
 
 def generate_random_bill_no():
@@ -72,40 +83,45 @@ def update_excel_file(template_path, temp_dir, is_mobile_bill):
 
     dates = compute_billing_dates()
 
-    if USE_ASPOSE:
-        # Use aspose-cells (preserves images and formatting)
+    if USE_XLWINGS:
+        # Use xlwings (preserves images and formatting via Excel app)
         try:
-            wb = ac.Workbook(template_path)
-            ws = wb.worksheets[0]
+            app = xw.App(visible=False)
+            wb = app.books.open(template_path)
+            ws = wb.sheets[0]
 
             if is_mobile_bill:
-                ws.cells.get("J5").put_value(dates['statement_date_str'])
-                ws.cells.get("J6").put_value(dates['statement_period_str'])
+                ws.range('J5').value = dates['statement_date_str']
+                ws.range('J6').value = dates['statement_period_str']
                 temp_filename = "temp_mobile_bill.xlsx"
             else:
-                ws.cells.get("J7").put_value(dates['statement_date_str'])
-                ws.cells.get("J8").put_value(dates['statement_period_str'])
+                ws.range('J7').value = dates['statement_date_str']
+                ws.range('J8').value = dates['statement_period_str']
                 temp_filename = "temp_landline_bill.xlsx"
 
             # Common cells for both bill types
-            ws.cells.get("Q7").put_value(dates['due_date_q7_str'])
-            ws.cells.get("S12").put_value(dates['due_date_s12_str'])
-            ws.cells.get("H82").put_value(dates['bill_no_str'])
+            ws.range('Q7').value = dates['due_date_q7_str']
+            ws.range('S12').value = dates['due_date_s12_str']
+            ws.range('H82').value = dates['bill_no_str']
 
             temp_excel_path = os.path.join(temp_dir, temp_filename)
             wb.save(temp_excel_path)
+            wb.close()
+            app.quit()
             return temp_excel_path, None
         except Exception as e:
-            return None, f"Aspose error: {e}"
+            try:
+                app.quit()
+            except:
+                pass
+            return None, f"xlwings error: {e}"
     else:
-        # Fallback to openpyxl (images will be lost)
+        # Fallback to openpyxl (images will be lost - for GitHub Actions only)
         try:
             wb = load_workbook(filename=template_path)
             ws = wb.active
         except FileNotFoundError:
             return None, f"Template file not found: {os.path.basename(template_path)}"
-
-        dates = compute_billing_dates()
 
         if is_mobile_bill:
             ws['J5'] = dates['statement_date_str']
@@ -124,6 +140,25 @@ def update_excel_file(template_path, temp_dir, is_mobile_bill):
         temp_excel_path = os.path.join(temp_dir, temp_filename)
         wb.save(temp_excel_path)
         return temp_excel_path, None
+
+
+def convert_excel_to_pdf(excel_path, pdf_path):
+    """Convert Excel to PDF using xlwings (preserves all formatting)."""
+    if not USE_XLWINGS:
+        raise RuntimeError("PDF conversion requires xlwings/Excel app")
+    
+    app = xw.App(visible=False)
+    try:
+        wb = app.books.open(excel_path)
+        wb.to_pdf(pdf_path)
+        wb.close()
+        app.quit()
+    except Exception as e:
+        try:
+            app.quit()
+        except:
+            pass
+        raise RuntimeError(f"PDF conversion failed: {e}")
 
 
 def send_email_smtp(sender_email, sender_password, recipient_email,

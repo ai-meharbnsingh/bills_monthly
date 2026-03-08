@@ -1,25 +1,20 @@
 #!/usr/bin/env python3
 """
-Railway Cron Job: Monthly Bill Generator
+Monthly Bill Generator (GitHub Actions)
 
-Runs on the 2nd of each month. Generates mobile and landline bills
-from Excel templates, converts to PDF via LibreOffice, and emails them.
+Runs on the 3rd of each month. Generates mobile and landline bills
+by overlaying dates/bill numbers on template PDFs, and emails them.
 
-All credentials are read from environment variables (set in Railway dashboard).
+All credentials are read from environment variables.
 """
 
 import os
 import sys
-import subprocess
 import tempfile
 from datetime import datetime
 
-from bill_utils import update_excel_file, send_email_smtp, pdf_filename
-
-# Templates live next to this script
-SCRIPT_DIR = os.path.dirname(os.path.abspath(__file__))
-MOBILE_TEMPLATE = os.path.join(SCRIPT_DIR, 'Mobile_Bill_Template.xlsx')
-LANDLINE_TEMPLATE = os.path.join(SCRIPT_DIR, 'Landline_Bill_Template.xlsx')
+from bill_utils import compute_billing_dates, send_email_smtp, pdf_filename
+from pdf_generator import generate_mobile_bill_pdf, generate_landline_bill_pdf
 
 
 def get_env(name):
@@ -31,42 +26,9 @@ def get_env(name):
     return value
 
 
-def convert_excel_to_pdf(excel_path, pdf_path):
-    """Convert Excel to PDF using LibreOffice headless (Linux)."""
-    print(f"  Converting {os.path.basename(excel_path)} to PDF...")
-    outdir = os.path.dirname(pdf_path)
-
-    result = subprocess.run(
-        [
-            'libreoffice', '--headless', '--calc',
-            '--convert-to', 'pdf',
-            '--outdir', outdir,
-            excel_path,
-        ],
-        capture_output=True,
-        text=True,
-        timeout=120,
-    )
-
-    if result.returncode != 0:
-        print(f"  LibreOffice stderr: {result.stderr}")
-        raise RuntimeError(f"LibreOffice conversion failed (exit {result.returncode})")
-
-    # LibreOffice outputs <basename>.pdf in outdir
-    lo_output = os.path.join(outdir, os.path.splitext(os.path.basename(excel_path))[0] + '.pdf')
-    if not os.path.exists(lo_output):
-        raise RuntimeError(f"PDF not found after conversion: {lo_output}")
-
-    # Rename to the desired filename (e.g. "Mobile Bill February-26.pdf")
-    if lo_output != pdf_path:
-        os.rename(lo_output, pdf_path)
-
-    print(f"  PDF created: {os.path.basename(pdf_path)}")
-
-
 def main():
     print("=" * 60)
-    print("MONTHLY BILL GENERATOR (Railway Cron)")
+    print("MONTHLY BILL GENERATOR")
     print(f"Run time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
     print("=" * 60)
 
@@ -77,37 +39,31 @@ def main():
     smtp_server = get_env('SMTP_SERVER')
     smtp_port_raw = get_env('SMTP_PORT')
     if not smtp_port_raw.isdigit() or not 1 <= int(smtp_port_raw) <= 65535:
-        print(f"ERROR: Invalid SMTP_PORT value: '{smtp_port_raw}'. Must be a number between 1 and 65535.")
+        print(f"ERROR: Invalid SMTP_PORT value: '{smtp_port_raw}'")
         sys.exit(1)
     smtp_port = int(smtp_port_raw)
 
     temp_dir = tempfile.mkdtemp(prefix='bills_')
     files_to_cleanup = []
 
+    # Compute billing dates once (same for both bills)
+    dates = compute_billing_dates()
+    print(f"\nBilling dates: {dates['statement_date_str']}")
+
     try:
         # --- Mobile Bill ---
         print("\n1. Generating Mobile Bill...")
-        mobile_xlsx, error = update_excel_file(MOBILE_TEMPLATE, temp_dir, is_mobile_bill=True)
-        if error:
-            raise RuntimeError(error)
-        files_to_cleanup.append(mobile_xlsx)
-        print(f"  Generated: {os.path.basename(mobile_xlsx)}")
-
         mobile_pdf = os.path.join(temp_dir, pdf_filename("Mobile"))
-        convert_excel_to_pdf(mobile_xlsx, mobile_pdf)
+        generate_mobile_bill_pdf(mobile_pdf, dates)
         files_to_cleanup.append(mobile_pdf)
+        print(f"  Generated: {os.path.basename(mobile_pdf)}")
 
         # --- Landline Bill ---
         print("\n2. Generating Landline Bill...")
-        landline_xlsx, error = update_excel_file(LANDLINE_TEMPLATE, temp_dir, is_mobile_bill=False)
-        if error:
-            raise RuntimeError(error)
-        files_to_cleanup.append(landline_xlsx)
-        print(f"  Generated: {os.path.basename(landline_xlsx)}")
-
         landline_pdf = os.path.join(temp_dir, pdf_filename("Landline"))
-        convert_excel_to_pdf(landline_xlsx, landline_pdf)
+        generate_landline_bill_pdf(landline_pdf, dates)
         files_to_cleanup.append(landline_pdf)
+        print(f"  Generated: {os.path.basename(landline_pdf)}")
 
         # --- Send Email ---
         print("\n3. Sending email...")
